@@ -47,7 +47,7 @@
         "Node name for S&R": "CheckpointLoaderSimple"
       },
       "widgets_values": [
-        "meinamix_v11.safetensors"
+        "meinamix_v12Final.safetensors"
       ]
     },
     {
@@ -125,7 +125,7 @@
         "Node name for S&R": "CLIPTextEncode"
       },
       "widgets_values": [
-        "lowres, bad anatomy, bad hands, worst quality, extra limbs, deformed, blurry, watermark, photorealistic, 3d render, cgi, vibrant colors, oversaturated, glossy, complex background, multiple people, intricate details, ornate, jewelry, nsfw, cropped, text, beautiful, pretty, stunning, professional photo, studio lighting, dramatic lighting"
+        "lowres, bad anatomy, bad hands, worst quality, extra limbs, deformed, blurry, watermark, photorealistic, 3d render, cgi, vibrant colors, oversaturated, glossy, complex background, multiple people, jewelry, cropped, text, studio lighting"
       ],
       "color": "#322",
       "bgcolor": "#533"
