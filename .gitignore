@@ -1,0 +1,53 @@
+# OS / Editor
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Logs
+*.log
+
+# Blender temp / autosave
+*.blend1
+*.blend2
+*.blend@
+*.blend~
+
+# Photoshop temp
+~$*.psd
+*.psdtmp
+
+# Generic temp / cache
+*.tmp
+*.bak
+*.swp
+*.swo
+cache/
+temp/
+tmp/
+
+# Godot cache
+.godot/
+godot_project/.godot/
+
+# Generated pipeline intermediates
+02_blender/renders/beauty/*
+!02_blender/renders/beauty/.gitkeep
+02_blender/renders/depth/*
+!02_blender/renders/depth/.gitkeep
+02_blender/renders/normal/*
+!02_blender/renders/normal/.gitkeep
+02_blender/renders/pose/*
+!02_blender/renders/pose/.gitkeep
+03_comfyui_input/*
+!03_comfyui_input/.gitkeep
+04_comfyui_output/raw/*
+!04_comfyui_output/raw/.gitkeep
