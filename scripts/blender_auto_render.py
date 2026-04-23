@@ -38,6 +38,7 @@ from typing import Any
 
 import bpy
 from bpy_extras.object_utils import world_to_camera_view
+from mathutils import Vector
 
 
 DEFAULT_DIRECTION_ANGLES = {
@@ -54,6 +55,9 @@ DEFAULT_ENGINE = "BLENDER_EEVEE"
 DEFAULT_VIEW_TRANSFORM = "Standard"
 DEFAULT_CAMERA_ROTATION = (63.435, 0.0, 45.0)
 DEFAULT_CAMERA_TYPE = "ORTHO"
+DEFAULT_TARGET_WIDTH_FILL = 0.62
+DEFAULT_TARGET_HEIGHT_FILL = 0.72
+DEFAULT_FRAMING_MESH_RATIO = 0.08
 DEFAULT_OUTPUT_ROOT = Path(__file__).resolve().parent.parent / "02_blender" / "renders"
 ENGINE_ALIASES = {
     "BLENDER_EEVEE_NEXT": "BLENDER_EEVEE",
@@ -115,6 +119,17 @@ class OutputNodes:
     normal: bpy.types.CompositorNodeOutputFile
 
 
+@dataclass
+class CameraState:
+    location: tuple[float, float, float]
+    rotation_mode: str
+    rotation_euler: tuple[float, float, float]
+    rotation_quaternion: tuple[float, float, float, float] | None
+    rotation_axis_angle: tuple[float, float, float, float] | None
+    camera_type: str
+    ortho_scale: float
+
+
 def log(message: str) -> None:
     print(f"[blender_auto_render] {message}")
 
@@ -160,6 +175,22 @@ def parser() -> argparse.ArgumentParser:
     arg_parser.add_argument("--resolution-x", dest="resolution_x", type=int)
     arg_parser.add_argument("--resolution-y", dest="resolution_y", type=int)
     arg_parser.add_argument("--ortho-scale", dest="ortho_scale", type=float)
+    arg_parser.add_argument("--target-width-fill", dest="target_width_fill", type=float)
+    arg_parser.add_argument("--target-height-fill", dest="target_height_fill", type=float)
+    arg_parser.add_argument("--framing-mesh-ratio", dest="framing_mesh_ratio", type=float)
+    arg_parser.add_argument(
+        "--auto-frame",
+        dest="auto_frame",
+        action="store_true",
+        default=None,
+        help="Automatically scale and center the orthographic camera to fit the character.",
+    )
+    arg_parser.add_argument(
+        "--no-auto-frame",
+        dest="auto_frame",
+        action="store_false",
+        help="Keep the configured orthographic camera framing as-is.",
+    )
     arg_parser.add_argument("--engine")
     arg_parser.add_argument(
         "--invert-normal-y",
@@ -190,6 +221,10 @@ def merge_settings(cli_args: argparse.Namespace, config: dict[str, Any]) -> dict
         "resolution_x": config.get("resolution_x", DEFAULT_RESOLUTION_X),
         "resolution_y": config.get("resolution_y", DEFAULT_RESOLUTION_Y),
         "ortho_scale": config.get("ortho_scale"),
+        "target_width_fill": config.get("target_width_fill", DEFAULT_TARGET_WIDTH_FILL),
+        "target_height_fill": config.get("target_height_fill", DEFAULT_TARGET_HEIGHT_FILL),
+        "framing_mesh_ratio": config.get("framing_mesh_ratio", DEFAULT_FRAMING_MESH_RATIO),
+        "auto_frame": config.get("auto_frame", True),
         "engine": config.get("engine", DEFAULT_ENGINE),
         "invert_normal_y": config.get("invert_normal_y", False),
     }
@@ -324,6 +359,34 @@ def restore_rotation_state(obj: bpy.types.Object, state: ObjectRotationState) ->
         obj.rotation_axis_angle = state.rotation_axis_angle
     else:
         obj.rotation_euler = state.rotation_euler
+
+
+def capture_camera_state(camera_obj: bpy.types.Object) -> CameraState:
+    quaternion = tuple(camera_obj.rotation_quaternion) if camera_obj.rotation_mode == "QUATERNION" else None
+    axis_angle = tuple(camera_obj.rotation_axis_angle) if camera_obj.rotation_mode == "AXIS_ANGLE" else None
+    return CameraState(
+        location=tuple(camera_obj.location),
+        rotation_mode=camera_obj.rotation_mode,
+        rotation_euler=tuple(camera_obj.rotation_euler),
+        rotation_quaternion=quaternion,
+        rotation_axis_angle=axis_angle,
+        camera_type=camera_obj.data.type,
+        ortho_scale=float(getattr(camera_obj.data, "ortho_scale", 0.0)),
+    )
+
+
+def restore_camera_state(camera_obj: bpy.types.Object, state: CameraState) -> None:
+    camera_obj.location = state.location
+    camera_obj.rotation_mode = state.rotation_mode
+    if state.rotation_mode == "QUATERNION" and state.rotation_quaternion is not None:
+        camera_obj.rotation_quaternion = state.rotation_quaternion
+    elif state.rotation_mode == "AXIS_ANGLE" and state.rotation_axis_angle is not None:
+        camera_obj.rotation_axis_angle = state.rotation_axis_angle
+    else:
+        camera_obj.rotation_euler = state.rotation_euler
+    camera_obj.data.type = state.camera_type
+    if hasattr(camera_obj.data, "ortho_scale"):
+        camera_obj.data.ortho_scale = state.ortho_scale
 
 
 def configure_render(scene: bpy.types.Scene, view_layer: bpy.types.ViewLayer, settings: dict[str, Any]) -> None:
@@ -555,6 +618,76 @@ def resolve_render_meshes(target_obj: bpy.types.Object) -> list[bpy.types.Object
         return visible_meshes
 
     raise RuntimeError("No renderable mesh objects found for depth/normal export.")
+
+
+def select_framing_meshes(mesh_objects: list[bpy.types.Object], mesh_ratio: float) -> list[bpy.types.Object]:
+    if not mesh_objects:
+        raise RuntimeError("No mesh objects available for automatic camera framing.")
+
+    max_extent = max(max(obj.dimensions) for obj in mesh_objects)
+    threshold = max_extent * mesh_ratio
+    framing_meshes = [obj for obj in mesh_objects if max(obj.dimensions) >= threshold]
+    return framing_meshes or mesh_objects
+
+
+def camera_local_bounds(
+    camera_obj: bpy.types.Object,
+    mesh_objects: list[bpy.types.Object],
+) -> tuple[float, float, float, float]:
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    camera_inverse = camera_obj.matrix_world.inverted()
+    min_x = float("inf")
+    max_x = float("-inf")
+    min_y = float("inf")
+    max_y = float("-inf")
+
+    for mesh_obj in mesh_objects:
+        eval_obj = mesh_obj.evaluated_get(depsgraph)
+        eval_mesh = eval_obj.to_mesh()
+        try:
+            for vertex in eval_mesh.vertices:
+                local_point = camera_inverse @ (eval_obj.matrix_world @ vertex.co)
+                min_x = min(min_x, local_point.x)
+                max_x = max(max_x, local_point.x)
+                min_y = min(min_y, local_point.y)
+                max_y = max(max_y, local_point.y)
+        finally:
+            eval_obj.to_mesh_clear()
+
+    if min_x == float("inf"):
+        raise RuntimeError("Automatic camera framing failed because no visible mesh vertices were found.")
+
+    return (min_x, max_x, min_y, max_y)
+
+
+def auto_frame_camera(
+    scene: bpy.types.Scene,
+    camera_obj: bpy.types.Object,
+    mesh_objects: list[bpy.types.Object],
+    target_width_fill: float,
+    target_height_fill: float,
+    framing_mesh_ratio: float,
+) -> None:
+    framing_meshes = select_framing_meshes(mesh_objects, framing_mesh_ratio)
+    min_x, max_x, min_y, max_y = camera_local_bounds(camera_obj, framing_meshes)
+
+    bbox_width = max_x - min_x
+    bbox_height = max_y - min_y
+    bbox_center_x = (min_x + max_x) * 0.5
+    bbox_center_y = (min_y + max_y) * 0.5
+
+    aspect_ratio = scene.render.resolution_x / scene.render.resolution_y
+    width_scale = bbox_width / max(target_width_fill * aspect_ratio, 1e-6)
+    height_scale = bbox_height / max(target_height_fill, 1e-6)
+    target_scale = max(width_scale, height_scale, 1e-6)
+
+    camera_rotation = camera_obj.matrix_world.to_quaternion()
+    camera_obj.location = (
+        camera_obj.location
+        + camera_rotation @ Vector((bbox_center_x, bbox_center_y, 0.0))
+    )
+    camera_obj.data.ortho_scale = target_scale
+    bpy.context.view_layer.update()
 
 
 def project_point_to_screen(
