@@ -660,6 +660,38 @@ def camera_local_bounds(
     return (min_x, max_x, min_y, max_y)
 
 
+def projected_view_bounds(
+    scene: bpy.types.Scene,
+    camera_obj: bpy.types.Object,
+    mesh_objects: list[bpy.types.Object],
+) -> tuple[float, float, float, float]:
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    min_u = float("inf")
+    max_u = float("-inf")
+    min_v = float("inf")
+    max_v = float("-inf")
+
+    for mesh_obj in mesh_objects:
+        eval_obj = mesh_obj.evaluated_get(depsgraph)
+        eval_mesh = eval_obj.to_mesh()
+        try:
+            for vertex in eval_mesh.vertices:
+                projected = world_to_camera_view(scene, camera_obj, eval_obj.matrix_world @ vertex.co)
+                if projected.z < 0.0:
+                    continue
+                min_u = min(min_u, projected.x)
+                max_u = max(max_u, projected.x)
+                min_v = min(min_v, projected.y)
+                max_v = max(max_v, projected.y)
+        finally:
+            eval_obj.to_mesh_clear()
+
+    if min_u == float("inf"):
+        raise RuntimeError("Automatic camera framing failed because no projected mesh vertices were found.")
+
+    return (min_u, max_u, min_v, max_v)
+
+
 def auto_frame_camera(
     scene: bpy.types.Scene,
     camera_obj: bpy.types.Object,
@@ -671,22 +703,35 @@ def auto_frame_camera(
     framing_meshes = select_framing_meshes(mesh_objects, framing_mesh_ratio)
     min_x, max_x, min_y, max_y = camera_local_bounds(camera_obj, framing_meshes)
 
-    bbox_width = max_x - min_x
-    bbox_height = max_y - min_y
     bbox_center_x = (min_x + max_x) * 0.5
     bbox_center_y = (min_y + max_y) * 0.5
 
-    aspect_ratio = scene.render.resolution_x / scene.render.resolution_y
-    width_scale = bbox_width / max(target_width_fill * aspect_ratio, 1e-6)
-    height_scale = bbox_height / max(target_height_fill, 1e-6)
-    target_scale = max(width_scale, height_scale, 1e-6)
-
     camera_rotation = camera_obj.matrix_world.to_quaternion()
-    camera_obj.location = (
-        camera_obj.location
-        + camera_rotation @ Vector((bbox_center_x, bbox_center_y, 0.0))
+    camera_obj.location = camera_obj.location + camera_rotation @ Vector((bbox_center_x, bbox_center_y, 0.0))
+    bpy.context.view_layer.update()
+
+    min_u, max_u, min_v, max_v = projected_view_bounds(scene, camera_obj, framing_meshes)
+    fill_width = max_u - min_u
+    fill_height = max_v - min_v
+    scale_factor = max(
+        fill_width / max(target_width_fill, 1e-6),
+        fill_height / max(target_height_fill, 1e-6),
+        1e-6,
     )
-    camera_obj.data.ortho_scale = target_scale
+    camera_obj.data.ortho_scale = max(camera_obj.data.ortho_scale * scale_factor, 1e-6)
+    bpy.context.view_layer.update()
+
+    final_min_u, final_max_u, final_min_v, final_max_v = projected_view_bounds(scene, camera_obj, framing_meshes)
+    final_fill_width = final_max_u - final_min_u
+    final_fill_height = final_max_v - final_min_v
+    log(
+        "Auto-framed camera: "
+        f"ortho_scale={camera_obj.data.ortho_scale:.4f}, "
+        f"fill_width={final_fill_width:.3f}, "
+        f"fill_height={final_fill_height:.3f}, "
+        f"framing_meshes={len(framing_meshes)}"
+    )
+
     bpy.context.view_layer.update()
 
 
@@ -985,6 +1030,7 @@ def render_direction(
     view_layer: bpy.types.ViewLayer,
     target_obj: bpy.types.Object,
     camera_obj: bpy.types.Object,
+    baseline_camera_state: CameraState,
     pose_armature: bpy.types.Object,
     mesh_objects: list[bpy.types.Object],
     base_z_radians: float,
@@ -992,13 +1038,28 @@ def render_direction(
     angle_degrees: float,
     body_type: str,
     output_dirs: dict[str, Path],
+    auto_frame: bool,
+    target_width_fill: float,
+    target_height_fill: float,
+    framing_mesh_ratio: float,
     invert_normal_y: bool,
 ) -> None:
     stem = f"{body_type}_{direction_name}"
     clear_old_outputs(output_dirs, stem)
 
+    restore_camera_state(camera_obj, baseline_camera_state)
     target_obj.rotation_euler.z = base_z_radians + math.radians(angle_degrees)
     bpy.context.view_layer.update()
+
+    if auto_frame:
+        auto_frame_camera(
+            scene=scene,
+            camera_obj=camera_obj,
+            mesh_objects=mesh_objects,
+            target_width_fill=target_width_fill,
+            target_height_fill=target_height_fill,
+            framing_mesh_ratio=framing_mesh_ratio,
+        )
 
     log(f"Rendering {direction_name} at Z={angle_degrees:.1f} degrees")
     beauty_path = output_dirs["beauty"] / f"{stem}.png"
@@ -1048,7 +1109,10 @@ def main() -> None:
     output_dirs = make_output_dirs(settings.get("output_root"))
 
     configure_render(scene, view_layer, settings)
+    original_camera_state = capture_camera_state(camera_obj)
     configure_camera(camera_obj, settings.get("ortho_scale"))
+    bpy.context.view_layer.update()
+    configured_camera_state = capture_camera_state(camera_obj)
 
     original_state = capture_rotation_state(target_obj)
 
@@ -1062,6 +1126,7 @@ def main() -> None:
                 view_layer=view_layer,
                 target_obj=target_obj,
                 camera_obj=camera_obj,
+                baseline_camera_state=configured_camera_state,
                 pose_armature=pose_armature,
                 mesh_objects=mesh_objects,
                 base_z_radians=base_z_radians,
@@ -1069,10 +1134,15 @@ def main() -> None:
                 angle_degrees=angle_degrees,
                 body_type=settings["body_type"],
                 output_dirs=output_dirs,
+                auto_frame=bool(settings.get("auto_frame", True)),
+                target_width_fill=float(settings.get("target_width_fill", DEFAULT_TARGET_WIDTH_FILL)),
+                target_height_fill=float(settings.get("target_height_fill", DEFAULT_TARGET_HEIGHT_FILL)),
+                framing_mesh_ratio=float(settings.get("framing_mesh_ratio", DEFAULT_FRAMING_MESH_RATIO)),
                 invert_normal_y=bool(settings.get("invert_normal_y")),
             )
     finally:
         restore_rotation_state(target_obj, original_state)
+        restore_camera_state(camera_obj, original_camera_state)
         bpy.context.view_layer.update()
 
     log("Batch render finished.")
