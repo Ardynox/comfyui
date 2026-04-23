@@ -9,6 +9,8 @@ Usage:
 Optional:
     --directions S SE E
     --directions S,SE,E
+    --render-body-type male_normal
+    --output-prefix male_ninja
     --api-url http://127.0.0.1:8000
     --comfyui-root C:\\Users\\12536\\Documents\\ComfyUI
 """
@@ -111,6 +113,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workflow", required=True, help="Path to a ComfyUI workflow JSON file.")
     parser.add_argument("--body-type", required=True, help="Body type such as male_normal.")
     parser.add_argument("--reference-image", required=True, help="IPAdapter reference image.")
+    parser.add_argument(
+        "--render-body-type",
+        help="Auxiliary-map stem under 02_blender/renders/. Defaults to --body-type.",
+    )
+    parser.add_argument(
+        "--output-prefix",
+        help="Filename prefix under 04_comfyui_output/raw/. Defaults to --body-type.",
+    )
     parser.add_argument(
         "--directions",
         nargs="*",
@@ -219,16 +229,22 @@ def resolve_installed_models(comfyui_root: Path) -> dict[str, str]:
     return resolved
 
 
-def direction_assets(body_type: str, direction: str, reference_image: Path) -> DirectionAssets:
-    stem = f"{body_type}_{direction}"
-    safe_stem = sanitize_name(stem)
+def direction_assets(
+    render_body_type: str,
+    output_prefix: str,
+    direction: str,
+    reference_image: Path,
+) -> DirectionAssets:
+    render_stem = f"{render_body_type}_{direction}"
+    output_stem = f"{output_prefix}_{direction}"
+    safe_stem = sanitize_name(output_stem)
     reference_suffix = reference_image.suffix.lower() or ".png"
 
-    depth_src = require_file(RENDER_ROOT / "depth" / f"{stem}.png", f"Depth map for {stem}")
-    pose_src = require_file(RENDER_ROOT / "pose" / f"{stem}.png", f"Pose map for {stem}")
-    normal_src = require_file(RENDER_ROOT / "normal" / f"{stem}.png", f"Normal map for {stem}")
+    depth_src = require_file(RENDER_ROOT / "depth" / f"{render_stem}.png", f"Depth map for {render_stem}")
+    pose_src = require_file(RENDER_ROOT / "pose" / f"{render_stem}.png", f"Pose map for {render_stem}")
+    normal_src = require_file(RENDER_ROOT / "normal" / f"{render_stem}.png", f"Normal map for {render_stem}")
     reference_src = require_file(reference_image, "Reference image")
-    final_output = RAW_OUTPUT_ROOT / f"{stem}.png"
+    final_output = RAW_OUTPUT_ROOT / f"{output_stem}.png"
 
     return DirectionAssets(
         reference_src=reference_src,
@@ -353,7 +369,7 @@ def patch_controlnet_loader_nodes(nodes: list[dict[str, Any]], installed_models:
 
 def patch_workflow_ui(
     workflow: dict[str, Any],
-    body_type: str,
+    output_prefix: str,
     direction: str,
     staged_inputs: dict[str, str],
     installed_models: dict[str, str],
@@ -367,7 +383,7 @@ def patch_workflow_ui(
     patch_controlnet_loader_nodes(nodes, installed_models)
 
     save_node_id: str | None = None
-    safe_prefix = sanitize_name(f"{body_type}_{direction}")
+    safe_prefix = sanitize_name(f"{output_prefix}_{direction}")
 
     for node in nodes:
         node_type = node.get("type")
@@ -522,7 +538,8 @@ def extract_output_image(history: dict[str, Any], save_node_id: str, comfyui_roo
 def generate_direction(
     workflow_data: dict[str, Any],
     api_url: str,
-    body_type: str,
+    render_body_type: str,
+    output_prefix: str,
     direction: str,
     reference_image: Path,
     comfyui_root: Path,
@@ -530,7 +547,7 @@ def generate_direction(
     timeout_seconds: int,
     poll_interval: float,
 ) -> Path:
-    assets = direction_assets(body_type, direction, reference_image)
+    assets = direction_assets(render_body_type, output_prefix, direction, reference_image)
     assets.final_output.parent.mkdir(parents=True, exist_ok=True)
 
     if assets.final_output.is_file():
@@ -540,7 +557,7 @@ def generate_direction(
     staged_inputs = stage_inputs(assets, comfyui_root)
     patched_workflow, save_node_id = patch_workflow_ui(
         workflow=workflow_data,
-        body_type=body_type,
+        output_prefix=output_prefix,
         direction=direction,
         staged_inputs=staged_inputs,
         installed_models=installed_models,
@@ -575,6 +592,8 @@ def main() -> None:
         raise RuntimeError(f"ComfyUI root not found: {comfyui_root}")
 
     directions = parse_directions(args.directions)
+    render_body_type = args.render_body_type or args.body_type
+    output_prefix = args.output_prefix or args.body_type
     workflow_data = load_json(workflow_path)
     if "nodes" not in workflow_data or "links" not in workflow_data:
         raise RuntimeError(
@@ -586,17 +605,20 @@ def main() -> None:
     log(f"Workflow: {workflow_path}")
     log(f"ComfyUI root: {comfyui_root}")
     log(f"API URL: {api_url}")
+    log(f"Render body type: {render_body_type}")
+    log(f"Output prefix: {output_prefix}")
     log(f"Directions: {', '.join(directions)}")
 
     installed_models = resolve_installed_models(comfyui_root)
 
     total_start = time.perf_counter()
     for index, direction in enumerate(directions, start=1):
-        log(f"({index}/{len(directions)}) Start {args.body_type}_{direction}")
+        log(f"({index}/{len(directions)}) Start {output_prefix}_{direction}")
         generate_direction(
             workflow_data=workflow_data,
             api_url=api_url,
-            body_type=args.body_type,
+            render_body_type=render_body_type,
+            output_prefix=output_prefix,
             direction=direction,
             reference_image=reference_image,
             comfyui_root=comfyui_root,
