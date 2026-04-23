@@ -9,6 +9,7 @@ Usage:
 Optional:
     --directions S SE E
     --directions S,SE,E
+    --api-url http://127.0.0.1:8000
     --comfyui-root C:\\Users\\12536\\Documents\\ComfyUI
 """
 
@@ -28,7 +29,10 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_API_URL = "http://127.0.0.1:8188"
+DEFAULT_API_URLS = (
+    "http://127.0.0.1:8000",
+    "http://127.0.0.1:8188",
+)
 DEFAULT_COMFYUI_ROOT = Path(r"C:\Users\12536\Documents\ComfyUI")
 DEFAULT_DIRECTIONS = ("S", "SE", "E", "NE", "N")
 DEFAULT_TIMEOUT_SECONDS = 900
@@ -112,7 +116,10 @@ def parse_args() -> argparse.Namespace:
         nargs="*",
         help="Directions to generate. Supports 'S SE E' or 'S,SE,E'. Defaults to all 5.",
     )
-    parser.add_argument("--api-url", default=DEFAULT_API_URL, help="ComfyUI HTTP API base URL.")
+    parser.add_argument(
+        "--api-url",
+        help="ComfyUI HTTP API base URL. If omitted, the script tries 127.0.0.1:8000 first, then 8188.",
+    )
     parser.add_argument(
         "--comfyui-root",
         default=str(DEFAULT_COMFYUI_ROOT),
@@ -180,6 +187,25 @@ def request_json(url: str, payload: dict[str, Any] | None = None, timeout: float
 
 def ensure_server(api_url: str) -> None:
     request_json(f"{api_url.rstrip('/')}/queue")
+
+
+def resolve_api_url(explicit_api_url: str | None) -> str:
+    if explicit_api_url:
+        ensure_server(explicit_api_url)
+        return explicit_api_url
+
+    errors: list[str] = []
+    for api_url in DEFAULT_API_URLS:
+        try:
+            ensure_server(api_url)
+            return api_url
+        except RuntimeError as exc:
+            errors.append(f"{api_url}: {exc}")
+
+    raise RuntimeError(
+        "Unable to reach ComfyUI on the default local ports. "
+        f"Tried: {', '.join(DEFAULT_API_URLS)}. Details: {' | '.join(errors)}"
+    )
 
 
 def resolve_installed_models(comfyui_root: Path) -> dict[str, str]:
@@ -555,11 +581,13 @@ def main() -> None:
             "The workflow must be an exported ComfyUI UI workflow JSON containing 'nodes' and 'links'."
         )
 
+    api_url = resolve_api_url(args.api_url)
+
     log(f"Workflow: {workflow_path}")
     log(f"ComfyUI root: {comfyui_root}")
+    log(f"API URL: {api_url}")
     log(f"Directions: {', '.join(directions)}")
 
-    ensure_server(args.api_url)
     installed_models = resolve_installed_models(comfyui_root)
 
     total_start = time.perf_counter()
@@ -567,7 +595,7 @@ def main() -> None:
         log(f"({index}/{len(directions)}) Start {args.body_type}_{direction}")
         generate_direction(
             workflow_data=workflow_data,
-            api_url=args.api_url,
+            api_url=api_url,
             body_type=args.body_type,
             direction=direction,
             reference_image=reference_image,
