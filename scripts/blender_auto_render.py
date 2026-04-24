@@ -1,4 +1,4 @@
-"""Batch render 5 isometric directions from a loaded Blender scene.
+"""Batch render practical isometric directions from a loaded Blender scene.
 
 Usage:
     blender --background path/to/scene.blend --python scripts/blender_auto_render.py -- \
@@ -16,7 +16,7 @@ Config file example:
   "pose_armature": "CMU compliant skeleton",
   "view_layer": "ViewLayer",
   "output_root": "D:/Godot/comfyui/02_blender/renders",
-  "directions": ["S", "SE", "E", "NE", "N"],
+  "directions": ["S", "SE", "SW", "E", "NE"],
   "resolution_x": 768,
   "resolution_y": 1024,
   "engine": "BLENDER_EEVEE_NEXT",
@@ -41,9 +41,11 @@ from bpy_extras.object_utils import world_to_camera_view
 from mathutils import Vector
 
 
-DEFAULT_DIRECTION_ANGLES = {
+DEFAULT_DIRECTIONS = ("S", "SE", "SW", "E", "NE")
+SUPPORTED_DIRECTION_ANGLES = {
     "S": 0.0,
     "SE": -45.0,
+    "SW": 45.0,
     "E": -90.0,
     "NE": -135.0,
     "N": 180.0,
@@ -314,21 +316,21 @@ def resolve_pose_armature(target_obj: bpy.types.Object, pose_armature_name: str 
 
 def resolve_directions(value: Any) -> dict[str, float]:
     if value is None:
-        return dict(DEFAULT_DIRECTION_ANGLES)
+        return {name: SUPPORTED_DIRECTION_ANGLES[name] for name in DEFAULT_DIRECTIONS}
 
     if isinstance(value, str):
         names = [item.strip() for item in value.split(",") if item.strip()]
-        invalid = [name for name in names if name not in DEFAULT_DIRECTION_ANGLES]
+        invalid = [name for name in names if name not in SUPPORTED_DIRECTION_ANGLES]
         if invalid:
             raise RuntimeError(f"Unsupported directions: {', '.join(invalid)}")
-        return {name: DEFAULT_DIRECTION_ANGLES[name] for name in names}
+        return {name: SUPPORTED_DIRECTION_ANGLES[name] for name in names}
 
     if isinstance(value, list):
         names = [str(name) for name in value]
-        invalid = [name for name in names if name not in DEFAULT_DIRECTION_ANGLES]
+        invalid = [name for name in names if name not in SUPPORTED_DIRECTION_ANGLES]
         if invalid:
             raise RuntimeError(f"Unsupported directions: {', '.join(invalid)}")
-        return {name: DEFAULT_DIRECTION_ANGLES[name] for name in names}
+        return {name: SUPPORTED_DIRECTION_ANGLES[name] for name in names}
 
     if isinstance(value, dict):
         return {str(name): float(angle) for name, angle in value.items()}

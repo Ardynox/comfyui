@@ -7,8 +7,8 @@ Usage:
         --reference-image 03_comfyui_input/reference.png
 
 Optional:
-    --directions S SE E
-    --directions S,SE,E
+    --directions S SE SW E NE
+    --directions S,SE,SW,E,NE
     --render-body-type male_normal
     --output-prefix male_ninja
     --api-url http://127.0.0.1:8000
@@ -36,7 +36,8 @@ DEFAULT_API_URLS = (
     "http://127.0.0.1:8188",
 )
 DEFAULT_COMFYUI_ROOT = Path(r"C:\Users\12536\Documents\ComfyUI")
-DEFAULT_DIRECTIONS = ("S", "SE", "E", "NE", "N")
+DEFAULT_DIRECTIONS = ("S", "SE", "SW", "E", "NE")
+SUPPORTED_DIRECTIONS = (*DEFAULT_DIRECTIONS, "N")
 DEFAULT_TIMEOUT_SECONDS = 900
 DEFAULT_POLL_INTERVAL = 1.0
 
@@ -160,7 +161,7 @@ def parse_directions(raw_values: list[str] | None) -> list[str]:
             direction = part.strip().upper()
             if not direction:
                 continue
-            if direction not in DEFAULT_DIRECTIONS:
+            if direction not in SUPPORTED_DIRECTIONS:
                 raise RuntimeError(f"Unsupported direction: {direction}")
             if direction not in parsed:
                 parsed.append(direction)
