@@ -43,6 +43,7 @@ godot_project/.godot/
 !02_blender/renders/beauty/.gitkeep
 02_blender/renders/depth/*
 !02_blender/renders/depth/.gitkeep
+!02_blender/renders/depth/README.md
 02_blender/renders/normal/*
 !02_blender/renders/normal/.gitkeep
 02_blender/renders/pose/*
