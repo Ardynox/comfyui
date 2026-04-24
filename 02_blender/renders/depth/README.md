@@ -2,11 +2,13 @@
 
 This directory is for canonical per-direction depth maps only.
 
+Depth maps must be generated from Blender scene geometry by `scripts/blender_auto_render.py`. The script projects mesh triangles through the camera, fills a z-buffer, normalizes visible depths, and writes a black-background RGB map. Do not derive depth maps from beauty renders or prompt/generated images.
+
 Expected practical input files for `male_normal` are:
 
 - `male_normal_S.png`
 - `male_normal_SE.png`
-- `male_normal_SW.png`
+- `male_normal_SW.png` after it is generated through Blender, not copied or derived from a beauty render
 - `male_normal_E.png`
 - `male_normal_NE.png`
 

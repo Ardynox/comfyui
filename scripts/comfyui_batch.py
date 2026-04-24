@@ -125,7 +125,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--directions",
         nargs="*",
-        help="Directions to generate. Supports 'S SE E' or 'S,SE,E'. Defaults to all 5.",
+        help="Directions to generate. Supports 'S SE SW E NE' or 'S,SE,SW,E,NE'. Defaults to the practical 5.",
     )
     parser.add_argument(
         "--api-url",
