@@ -12,7 +12,9 @@ name: GPT Image Batch (5 views)
 #   OPENAI_BASE_URL   - relay endpoint, e.g. https://timesniper.club/v1
 #                       (omit if you want to hit OpenAI default https://api.openai.com/v1)
 
-on:
+# Quote "on" so YAML 1.1 parsers (PyYAML, some lints) don't coerce it to a
+# boolean. GitHub's parser is fine either way, but quoting keeps tooling sane.
+"on":
   workflow_dispatch:
     inputs:
       pattern:
