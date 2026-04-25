@@ -5,12 +5,22 @@ Desktop.ini
 .idea/
 .vscode/
 
+# Claude Code session local state
+.claude/
+
 # Python
 __pycache__/
 *.py[cod]
 .venv/
 venv/
 env/
+
+# Secrets (API keys for GPT image / other services)
+.env
+.env.*
+!.env.example
+secrets/
+scripts/.secrets
 
 # Logs
 *.log
@@ -44,6 +54,9 @@ godot_project/.godot/
 02_blender/renders/depth/*
 !02_blender/renders/depth/.gitkeep
 !02_blender/renders/depth/README.md
+# Track depth PNGs (small, ~5 MB total) so CI can consume them as input.
+# The README in the same dir guards against non-canonical files landing here.
+!02_blender/renders/depth/*.png
 02_blender/renders/normal/*
 !02_blender/renders/normal/.gitkeep
 02_blender/renders/pose/*

@@ -1,0 +1,95 @@
+name: GPT Image Batch (5 views)
+
+# Runs scripts/gpt_image_batch_5views.py on a GitHub-hosted runner so we don't
+# have to keep a local box online while the OpenAI relay (timesniper.club) is
+# slow / flaky. Outputs are uploaded as workflow artifacts; nothing is
+# committed back to the repo (raw outputs are ephemeral per pipeline.md §4.4).
+#
+# Trigger: Actions tab -> "GPT Image Batch (5 views)" -> "Run workflow".
+#
+# Required repo secrets (Settings -> Secrets and variables -> Actions):
+#   OPENAI_API_KEY    - the sk-... key (relay key works, plain OpenAI key works)
+#   OPENAI_BASE_URL   - relay endpoint, e.g. https://timesniper.club/v1
+#                       (omit if you want to hit OpenAI default https://api.openai.com/v1)
+
+on:
+  workflow_dispatch:
+    inputs:
+      pattern:
+        description: 'Glob inside 02_blender/renders/depth/. Python glob, supports [...] char class. e.g. female_age[1248]_5views_depth.png to redo just those four.'
+        required: false
+        default: 'female_age*_5views_depth.png'
+      quality:
+        description: 'gpt-image-2 quality tier'
+        required: false
+        default: 'medium'
+        type: choice
+        options: [low, medium, high, auto]
+      max_retries:
+        description: 'Retries per input for moderation/rate/5xx/timeout (probabilistic errors only)'
+        required: false
+        default: '30'
+      retry_delay:
+        description: 'Base seconds between retries (rate-limit auto-multiplied 4x)'
+        required: false
+        default: '3.0'
+      timeout:
+        description: 'Per-call HTTP timeout (s). Keep low so timeouts cycle into the next retry fast on a slow relay.'
+        required: false
+        default: '60'
+      force:
+        description: 'Re-run even if output exists in repo'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    # GH Actions free-tier hard cap is 360 min; leave a small margin for
+    # checkout / artifact upload.
+    timeout-minutes: 350
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: requirements-ci.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-ci.txt
+
+      - name: Run batch
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+          PYTHONIOENCODING: utf-8
+        run: |
+          set -eo pipefail
+          ARGS=(
+            --pattern "${{ inputs.pattern }}"
+            --quality "${{ inputs.quality }}"
+            --max-retries "${{ inputs.max_retries }}"
+            --retry-delay "${{ inputs.retry_delay }}"
+            --timeout "${{ inputs.timeout }}"
+          )
+          if [ "${{ inputs.force }}" = "true" ]; then
+            ARGS+=(--force)
+          fi
+          python -u scripts/gpt_image_batch_5views.py "${ARGS[@]}"
+
+      - name: Upload generated PNGs
+        # Run on success AND failure: a partially-completed batch still has
+        # useful artifacts to download (skip-existing means re-run only redoes
+        # the failures).
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpt-image-outputs
+          path: 04_comfyui_output/raw/female_age*_5views_gptimage.png
+          if-no-files-found: warn
+          retention-days: 30

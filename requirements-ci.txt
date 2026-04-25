@@ -1,0 +1,4 @@
+# Minimal deps for CI to run scripts/gpt_image_batch_5views.py.
+# Local dev needs more (Pillow for compose_5views_depth.py, bpy via Blender for
+# depth render, etc.) but the GPT-image batch only depends on the OpenAI SDK.
+openai>=1.59.0
