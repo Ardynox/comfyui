@@ -147,7 +147,16 @@ def load_prompt(prompt_arg: str) -> str:
     return prompt_arg
 
 
-RETRYABLE_MODERATION_CODES = {"moderation_blocked", "content_policy_violation"}
+RETRYABLE_BAD_REQUEST_CODES = {
+    "moderation_blocked",
+    "content_policy_violation",
+    # Relay wrapper code (timesniper.club et al.) for "upstream returned a bad
+    # status, I'm forwarding it as 400". Opaque and unreliable — the relay
+    # sometimes uses this for genuine moderation, sometimes for upstream
+    # stalls, sometimes when its own multipart parser drops the UTF-8 prompt
+    # field. All three cases benefit from another attempt.
+    "bad_response_status_code",
+}
 
 
 def _error_body(exc) -> dict:
@@ -191,12 +200,22 @@ def _should_retry(exc) -> tuple[bool, str]:
     if isinstance(exc, BadRequestError):
         err = _error_body(exc)
         code = err.get("code") or ""
-        if code in RETRYABLE_MODERATION_CODES:
+        if code in RETRYABLE_BAD_REQUEST_CODES:
             return True, f"BadRequestError/{code}"
         # Some relays stuff the code in message/type; string match as fallback.
         blob = (err.get("type") or "") + " " + (err.get("message") or "") + " " + str(exc)
-        if "moderation" in blob.lower() or "safety" in blob.lower():
+        blob_lower = blob.lower()
+        if "moderation" in blob_lower or "safety" in blob_lower:
             return True, "BadRequestError/moderation(str-match)"
+        # Relay claims "prompt is empty" / "prompt 不能为空" when our prompt is
+        # demonstrably non-empty (we log it before the call). Treat as a
+        # relay-side multipart/encoding flake and retry. Match Chinese and
+        # English variants.
+        if "prompt" in blob_lower and (
+            "不能为空" in blob or "为空" in blob
+            or "empty" in blob_lower or "missing" in blob_lower
+        ):
+            return True, "BadRequestError/relay-empty-prompt(str-match)"
     return False, ""
 
 
