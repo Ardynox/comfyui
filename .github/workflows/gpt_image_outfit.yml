@@ -1,0 +1,94 @@
+name: GPT Image Outfit (single 5-view)
+
+# Single-shot variant of gpt_image_batch.yml: takes one already-colored
+# 5-view base sheet from 04_comfyui_output/raw/ and applies a full outfit
+# prompt on top. Output is one PNG per dispatch (one outfit at a time).
+#
+# Trigger: Actions tab -> "GPT Image Outfit (single 5-view)" -> "Run workflow".
+#
+# Required repo secrets:
+#   OPENAI_API_KEY
+#   OPENAI_BASE_URL   (optional; defaults to OpenAI direct)
+
+"on":
+  workflow_dispatch:
+    inputs:
+      outfit_name:
+        description: 'Outfit slug. Reads prompts/outfit_{name}.md, writes female_age4_outfit_{name}_5views.png. Existing slugs: leather_adventurer.'
+        required: true
+        default: 'leather_adventurer'
+      base_image:
+        description: 'Already-colored 5-view base used as the body. Default = age4.'
+        required: false
+        default: '04_comfyui_output/raw/female_age4_5views_gptimage.png'
+      output_stem:
+        description: 'Output filename stem (no .png). Defaults to female_age4_outfit_{outfit_name}_5views.'
+        required: false
+        default: ''
+      quality:
+        required: false
+        default: 'medium'
+        type: choice
+        options: [low, medium, high, auto]
+      max_retries:
+        required: false
+        default: '30'
+      retry_delay:
+        required: false
+        default: '3.0'
+      timeout:
+        required: false
+        default: '60'
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: requirements-ci.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-ci.txt
+
+      - name: Run gpt_image_edit
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+          PYTHONIOENCODING: utf-8
+        run: |
+          set -eo pipefail
+          OUTFIT="${{ inputs.outfit_name }}"
+          STEM="${{ inputs.output_stem }}"
+          if [ -z "$STEM" ]; then
+            STEM="female_age4_outfit_${OUTFIT}_5views"
+          fi
+          mkdir -p 04_comfyui_output/raw
+          python -u scripts/gpt_image_edit.py \
+            --input "${{ inputs.base_image }}" \
+            --prompt "@prompts/outfit_${OUTFIT}.md" \
+            --output "04_comfyui_output/raw/${STEM}.png" \
+            --model gpt-image-2 \
+            --size 1536x1024 \
+            --quality "${{ inputs.quality }}" \
+            --background auto \
+            --n 1 \
+            --timeout "${{ inputs.timeout }}" \
+            --max-retries "${{ inputs.max_retries }}" \
+            --retry-delay "${{ inputs.retry_delay }}"
+
+      - name: Upload generated PNG
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpt-image-outfit-${{ inputs.outfit_name }}
+          path: 04_comfyui_output/raw/female_age4_outfit_*_5views.png
+          if-no-files-found: warn
+          retention-days: 30

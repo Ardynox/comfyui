@@ -65,3 +65,9 @@ godot_project/.godot/
 !03_comfyui_input/.gitkeep
 04_comfyui_output/raw/*
 !04_comfyui_output/raw/.gitkeep
+# Track canonical female base 5-view sheets so CI outfit workflow can use
+# them as input. Drift versions (*_male.png) and other generated sheets stay
+# ignored. Outfit outputs (female_ageN_outfit_*.png) also tracked so they
+# survive across CI runs.
+!04_comfyui_output/raw/female_age[0-8]_5views_gptimage.png
+!04_comfyui_output/raw/female_age[0-8]_outfit_*.png
