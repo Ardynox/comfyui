@@ -71,3 +71,5 @@ godot_project/.godot/
 # survive across CI runs.
 !04_comfyui_output/raw/female_age[0-8]_5views_gptimage.png
 !04_comfyui_output/raw/female_age[0-8]_outfit_*.png
+!04_comfyui_output/raw/male_normal_5views_gptimage.png
+!04_comfyui_output/raw/male_normal_outfit_*.png
