@@ -39,6 +39,10 @@ name: GPT Image Outfit (single 5-view)
       timeout:
         required: false
         default: '60'
+      model:
+        description: 'Model id passed to client.images.edit. Try gpt-image-2-official when the default queue is jammed.'
+        required: false
+        default: 'gpt-image-2'
 
 jobs:
   generate:
@@ -75,7 +79,7 @@ jobs:
             --input "${{ inputs.base_image }}" \
             --prompt "@prompts/outfit_${OUTFIT}.md" \
             --output "04_comfyui_output/raw/${STEM}.png" \
-            --model gpt-image-2 \
+            --model "${{ inputs.model }}" \
             --size 1536x1024 \
             --quality "${{ inputs.quality }}" \
             --background auto \
