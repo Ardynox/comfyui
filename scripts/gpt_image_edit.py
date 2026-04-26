@@ -150,13 +150,25 @@ def load_prompt(prompt_arg: str) -> str:
 RETRYABLE_BAD_REQUEST_CODES = {
     "moderation_blocked",
     "content_policy_violation",
-    # Relay wrapper code (timesniper.club et al.) for "upstream returned a bad
-    # status, I'm forwarding it as 400". Opaque and unreliable — the relay
-    # sometimes uses this for genuine moderation, sometimes for upstream
-    # stalls, sometimes when its own multipart parser drops the UTF-8 prompt
-    # field. All three cases benefit from another attempt.
+    # Relay wrapper codes (timesniper.club et al.). The relay re-labels
+    # upstream issues with its own codes — observed so far:
+    #   bad_response_status_code  - "I forwarded an upstream bad status"
+    #   invalid_request           - generic "something's off, retry"
+    # Both are unreliable signals (sometimes genuine moderation, sometimes
+    # upstream stall, sometimes its own parser dropping the UTF-8 prompt
+    # field). All cases benefit from another attempt.
     "bad_response_status_code",
+    "invalid_request",
 }
+
+
+def _is_chinese_error_message(msg: str) -> bool:
+    """A Chinese-language error message is almost certainly a relay wrapper
+    rather than OpenAI's own response (OpenAI errors are English). Treat as
+    relay-side flake → retry."""
+    if not msg:
+        return False
+    return any("\u4e00" <= ch <= "\u9fff" for ch in msg)
 
 
 def _error_body(exc) -> dict:
@@ -216,6 +228,13 @@ def _should_retry(exc) -> tuple[bool, str]:
             or "empty" in blob_lower or "missing" in blob_lower
         ):
             return True, "BadRequestError/relay-empty-prompt(str-match)"
+        # Last resort: any 400 whose error message is in Chinese is almost
+        # certainly a relay wrapper (OpenAI's own errors are always English).
+        # Examples observed: "请求无法完成，请检查输入后重试", "prompt 不能为空".
+        # Hard OpenAI 400s (invalid_api_key, model_not_found, unsupported_value)
+        # carry English messages and aren't matched here.
+        if _is_chinese_error_message(err.get("message") or ""):
+            return True, "BadRequestError/relay-chinese-message"
     return False, ""
 
 
