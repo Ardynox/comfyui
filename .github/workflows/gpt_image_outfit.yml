@@ -89,6 +89,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: gpt-image-outfit-${{ inputs.outfit_name }}
-          path: 04_comfyui_output/raw/female_age4_outfit_*_5views.png
+          # Match any outfit output (female_age*, male_normal, with or without
+          # the _5views suffix). The script writes to whatever output_stem the
+          # caller passes; this glob just needs to cover all the conventions
+          # we use.
+          path: 04_comfyui_output/raw/*_outfit_*.png
           if-no-files-found: warn
           retention-days: 30
