@@ -97,6 +97,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: gpt-image-outputs
-          path: 04_comfyui_output/raw/female_age*_5views_gptimage.png
+          # Pick up any 5-view sheet (female_age*, male_normal, future variants)
+          # so this workflow doesn't need editing every time we add a sex/style.
+          path: 04_comfyui_output/raw/*_5views_gptimage.png
           if-no-files-found: warn
           retention-days: 30
