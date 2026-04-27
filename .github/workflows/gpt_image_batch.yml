@@ -48,6 +48,10 @@ name: GPT Image Batch (5 views)
         required: false
         default: false
         type: boolean
+      model:
+        description: 'Model id passed to the script. Try gpt-image-2-official when default queue is jammed.'
+        required: false
+        default: 'gpt-image-2'
 
 jobs:
   generate:
@@ -79,6 +83,7 @@ jobs:
           ARGS=(
             --pattern "${{ inputs.pattern }}"
             --prompt-file "${{ inputs.prompt_file }}"
+            --model "${{ inputs.model }}"
             --quality "${{ inputs.quality }}"
             --max-retries "${{ inputs.max_retries }}"
             --retry-delay "${{ inputs.retry_delay }}"
