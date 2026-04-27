@@ -37,8 +37,9 @@ name: GPT Image Outfit (single 5-view)
         required: false
         default: '3.0'
       timeout:
+        description: 'Per-call HTTP timeout (s). 180 fits gpt-image-2-official latency. Drop to 60 only on the fast gpt-image-2 path.'
         required: false
-        default: '60'
+        default: '180'
       model:
         description: 'Model id passed to client.images.edit. Try gpt-image-2-official when the default queue is jammed.'
         required: false

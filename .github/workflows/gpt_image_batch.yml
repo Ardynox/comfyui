@@ -40,9 +40,9 @@ name: GPT Image Batch (5 views)
         required: false
         default: '3.0'
       timeout:
-        description: 'Per-call HTTP timeout (s). Keep low so timeouts cycle into the next retry fast on a slow relay.'
+        description: 'Per-call HTTP timeout (s). 180 fits gpt-image-2-official latency (~70-90s/image). Drop to 60 only if the upstream is the fast gpt-image-2 path.'
         required: false
-        default: '60'
+        default: '180'
       force:
         description: 'Re-run even if output exists in repo'
         required: false
